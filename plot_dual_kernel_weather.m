@@ -1,0 +1,393 @@
+% Plot_kernel_ResDMD_weather.m
+% or shorten it 'Plot_dual_kernel_weather.m'
+% Dual Koopman Mode Decomposition for Weather Data
+% Date: 2026/02/05    By Z. Zhang
+% Data: Precipitation field (20860 spatial points × 71 time snapshots)
+
+%clear; close all;
+
+%% ============================================================
+% 1. Load and prepare data (ensmeble data )
+data_dir = 'D:\Susuki Lab\Testing_Code\data-weather\Data250525\Ensemble_PREC';
+M = 100;  % Ensemble members: enPREC000 to enPREC099
+Xa_ens = cell(M, 1);  
+Ya_ens = cell(M, 1);
+
+fprintf('Loading %d ensemble members (enPREC000-099)...\n', M);
+for m = 0:M-1
+    fname = sprintf('enPREC%03d.mat', m);
+    S = load(fullfile(data_dir, fname));
+    Xraw = S.vectorized_PREC;    % 20860 × 73 (time × space)
+    
+    % Remove boundary spatial points (columns 1 and 73)
+    % Keep columns 2 to 72 (71 interior spatial points)
+    Xa_ens{m+1} = Xraw(:, 2:end-1);  % 20860 × 71: x^(i)(t)
+    Ya_ens{m+1} = Xraw(:, 3:end);    % 20860 × 72: shifted spatial pattern
+end
+
+%% Load MEAN trajectory (enPREC100)
+fprintf('Loading mean trajectory (enPREC100)...\n');
+S_mean = load(fullfile(data_dir, 'enPREC100.mat'));
+Xraw_mean = S_mean.vectorized_PREC;  % 20860 × 73
+Xa_mean = Xraw_mean(:, 2:end-1);     % 20860 × 71: x̄(t)
+Ya_mean = Xraw_mean(:, 3:end);       % 20860 × 72
+
+%% ============================================================
+% Assuming vectorized_PREC is already loaded
+% Size: (140×149 spatial grid) × 73 time snapshots = 20860×73
+
+Xa = Xa_ens{1,1}-Xa_mean;  % Current states: 20860×71
+Ya =  Ya_ens{1,1}-Ya_mean;     % Next states: 20860×71
+
+ %Xa = vectorized_MSLP(:, 1:end-1);  % Current states: 20860×73
+% Ya = vectorized_MSLP(:, 2:end);     % Next states: 20860×73
+
+% Geophysical grid information
+lat_sub = weatherDat2021AUG_ensemble0.dat_lat;  % 140×149
+lon_sub = weatherDat2021AUG_ensemble0.dat_lon;  % 140×149
+latN = 140;
+lonN = 149;
+shapefile_path = 'D:\Susuki Lab\Testing_Code\data-weather\Data_250401\ne_10m_coastline\ne_10m_coastline.shp';
+S = shaperead(shapefile_path);
+
+%% ============================================================
+% 2. Compute Dual Koopman Decomposition (Kernel ResDMD)
+%% ============================================================
+N_modes = 70;  % Use all available snapshots as dictionary
+
+[G, K_star, L, PX, PY, PSI_x] = kernel_ResDMD(...
+    Xa, Ya, ...
+    'type', 'Linear', ...
+    'N', N_modes, ...
+    'Xb', Xa ...  % Evaluate eigenfunctions at training points
+);
+
+% Eigendecomposition of dual Koopman operator
+[V, D] = eig(K_star);
+Lambda = diag(D);
+
+% Sort by magnitude (optional - most stable modes first)
+[~, idx] = sort(abs(Lambda), 'descend');
+Lambda = Lambda(idx);
+V = V(:, idx);
+
+fprintf('Computed %d dual Koopman modes\n', N_modes);
+
+%% ============================================================
+% 3. Plot Dual Koopman Eigenvalue Spectrum
+%% ============================================================
+figure('Position', [100, 100, 800, 600]);
+scatter(real(Lambda), imag(Lambda), 80, 'ko', 'filled', 'MarkerEdgeColor', 'k');
+hold on;
+% Unit circle for reference
+theta = linspace(0, 2*pi, 100);
+plot(cos(theta), sin(theta), 'r--', 'LineWidth', 1.5);
+hold off;
+
+xlabel('Re(\lambda)', 'FontSize', 12);
+ylabel('Im(\lambda)', 'FontSize', 12);
+title('Dual Koopman Eigenvalue Spectrum', 'FontSize', 14);
+grid on;
+axis equal;
+legend('Eigenvalues', 'Unit Circle', 'Location', 'best');
+
+%% ============================================================
+% 4. Analyze and Plot Individual Modes
+%% ============================================================
+% Select modes to visualize
+%modes_to_plot = [1, 2, 3, 4];  % Indices of modes to plot
+
+for mode_idx = 2:2:8
+    
+    fprintf('\n--- Mode %d (λ = %.4f + %.4fi) ---\n', ...
+        mode_idx, real(Lambda(mode_idx)), imag(Lambda(mode_idx)));
+    
+    %% Create figure with 2x3 layout
+    figure('Position', [100, 100, 1400, 900]);
+    
+    %% (a) Eigenvalue Spectrum - Highlight Current Mode
+    subplot(2, 2, 1);
+    % Plot all eigenvalues
+    scatter(real(Lambda), imag(Lambda), 60, 'ko', 'filled', 'MarkerEdgeColor', 'k');
+    hold on;
+    % Highlight the selected eigenvalue
+    scatter(real(Lambda(mode_idx)), imag(Lambda(mode_idx)), 150, 'r', 'filled', ...
+            'MarkerEdgeColor', 'k', 'LineWidth', 2);
+    % Unit circle
+    theta = linspace(0, 2*pi, 100);
+    plot(cos(theta), sin(theta), 'b--', 'LineWidth', 1.5);
+    hold off;
+    
+    xlabel('Re(\lambda)', 'FontSize', 11);
+    ylabel('Im(\lambda)', 'FontSize', 11);
+    title(sprintf('Eigenvalue Spectrum (Mode %d highlighted)', mode_idx), 'FontSize', 12);
+    grid on;
+    axis equal;
+    legend('All eigenvalues', sprintf('Mode %d', mode_idx), 'Unit Circle', ...
+           'Location', 'best', 'FontSize', 9);
+    
+    %% (b) RKHS Coefficient
+    subplot(2, 2, 2);
+
+   coeffs = abs(V(:, mode_idx));
+
+% Plot all coefficients
+stem(1:length(coeffs), coeffs, 'filled', 'MarkerSize', 4, ...
+     'Color', [0.3, 0.3, 0.8], 'MarkerFaceColor', [0.3, 0.3, 0.8]);
+hold on;
+
+% Highlight the stem at mode_idx with vertical shading
+xline(mode_idx, 'r--', 'LineWidth', 2, 'Label', sprintf('Mode %d', mode_idx), ...
+      'LabelOrientation', 'horizontal', 'FontSize', 9);
+
+% Make the specific stem stand out
+stem(mode_idx, coeffs(mode_idx), 'filled', 'MarkerSize', 10, ...
+     'Color', 'r', 'MarkerFaceColor', 'r', 'LineWidth', 2.5);
+
+hold off;
+
+xlabel('Snapshot Index (Kernel Center)', 'FontSize', 11);
+ylabel('|Coefficient|', 'FontSize', 11);
+title(sprintf('RKHS Coefficients of Eigenvector %d', mode_idx), 'FontSize', 12);
+grid on;
+    %% (c) Dual Eigenfunction Values at Training Points
+    subplot(2, 2, 3);
+    % Dual Koopman eigenfunction
+    phi_values_idx = PSI_x * V(:, mode_idx);  % Use PSI_x
+    plot(1:length(phi_values_idx), real(phi_values_idx), 'o-', 'LineWidth', 1.5, 'MarkerSize', 5);
+    xlabel('Snapshot Index (time)', 'FontSize', 11);
+    ylabel('Re(\phi_j(x_t))', 'FontSize', 11);
+    title('Eigenfunction at Data Points', 'FontSize', 12);
+    grid on;
+    
+    %% (d) Physical Space Mode - Spatial Structure (LARGER PLOT)
+    subplot(2, 2, 4);
+    
+    % Compute dual Koopman mode in physical space
+    Dual_KMode = Xa * (PX * V(:, mode_idx));  % 20860×1
+    
+    % Reshape to spatial grid (140×149)
+    DKmode_spatial = reshape(abs(Dual_KMode(1:latN*lonN)), [latN, lonN]);
+    
+    % Plot spatial field
+    imagesc(lon_sub(1, :), lat_sub(:, 1), DKmode_spatial);
+    set(gca, 'YDir', 'normal');
+    axis equal tight;
+    
+    % Colormap and colorbar
+    colormap(brighten(redblueTecplot(21), -0.55));
+    cb = colorbar;
+    ylabel(cb, 'Mode Amplitude', 'FontSize', 10);
+    
+    % Overlay coastlines
+    hold on;
+    for k = 1:length(S)
+        plot(S(k).X, S(k).Y, 'k-', 'LineWidth', 1.2);
+    end
+    hold off;
+    
+    % Labels
+    xlabel('Longitude (°E)', 'Interpreter', 'tex', 'FontSize', 11);
+    ylabel('Latitude (°N)', 'Interpreter', 'tex', 'FontSize', 11);
+    title(sprintf('Dual Koopman Mode %d | λ = %.3f + %.3fi | |λ| = %.3f', ...
+        mode_idx, real(Lambda(mode_idx)), imag(Lambda(mode_idx)), abs(Lambda(mode_idx))), ...
+        'FontSize', 12);
+    
+    xlim([min(lon_sub(:)), max(lon_sub(:))]);
+    ylim([min(lat_sub(:)), max(lat_sub(:))]);
+    
+    % Adjust spacing
+    sgtitle(sprintf('Dual Koopman Analysis - Mode %d', mode_idx), ...
+            'FontSize', 14, 'FontWeight', 'bold');
+    
+    % Save figure
+  %  saveas(gcf, sprintf('DualKoopmanMode_%d.png', mode_idx));
+end
+
+
+%% ============================================================
+% 5. Eigenfunction Spatial Distribution (Optional Alternative View)
+%% ============================================================
+eig_id = 2;  % Choose eigenfunction to visualize
+
+%figure('Position', [100, 100, 900, 700]);
+
+% Method 1: Eigenfunction evaluated at training snapshots (temporal evolution)
+phi_temporal = real(PSI_x * V(:, eig_id));  % 71×1 (values at each time snapshot)
+
+
+%% 1. Dual Koopman Eigenfunction (temporal evolution)
+figure;
+plot(1:size(Xa,2), phi_temporal, 'o-', 'LineWidth', 2, 'MarkerSize', 6);
+xlabel('Time Snapshot Index');
+ylabel('φ_j(x_t)');
+title(sprintf('Dual Koopman Eigenfunction φ_%d', eig_id));
+grid on;
+
+% Method 2: Dual Koopman mode in physical space (spatial pattern)
+Dual_KMode_temp = Xa * (PX * V(:, eig_id));  % 20860×1 vector first
+phi_field = abs(Dual_KMode_temp(1:latN*lonN));  % Extract spatial points
+phi_field = reshape(phi_field, [latN, lonN]);  % Reshape to grid: 140×149
+
+% Plot the spatial field
+figure;
+imagesc(lon_sub(1, :), lat_sub(:, 1), phi_field);
+set(gca, 'YDir', 'normal');
+axis equal tight;
+
+colormap(brighten(redblueTecplot(21), -0.55));
+cb = colorbar;
+ylabel(cb, 'Eigenfunction Value', 'FontSize', 10);
+
+% Overlay coastlines
+hold on;
+for k = 1:length(S)
+    plot(S(k).X, S(k).Y, 'k-', 'LineWidth', 1.2);
+end
+hold off;
+
+xlabel('Longitude (°E)', 'Interpreter', 'tex', 'FontSize', 11);
+ylabel('Latitude (°N)', 'Interpreter', 'tex', 'FontSize', 11);
+title(sprintf('Dual Koopman Mode φ_%d (λ = %.3f + %.3fi)', ...
+    eig_id, real(Lambda(eig_id)), imag(Lambda(eig_id))), 'FontSize', 12);
+
+xlim([min(lon_sub(:)), max(lon_sub(:))]);
+ylim([min(lat_sub(:)), max(lat_sub(:))]);
+
+%% ============================================================
+% 6. Summary Statistics
+%% ============================================================
+fprintf('\n========== Dual Koopman Analysis Summary ==========\n');
+fprintf('Data dimensions: %d spatial points × %d time snapshots\n', size(Xa, 1), size(Xa, 2));
+fprintf('Spatial grid: %d × %d\n', latN, lonN);
+fprintf('Number of modes computed: %d\n', N_modes);
+fprintf('\nTop 5 eigenvalues (by magnitude):\n');
+for i = 1:min(5, length(Lambda))
+    fprintf('  λ_%d = %.4f + %.4fi  (|λ| = %.4f)\n', ...
+        i, real(Lambda(i)), imag(Lambda(i)), abs(Lambda(i)));
+end
+
+fprintf('\n====================================================\n');
+
+
+
+%% plot the speparate modes frpm 2:2:18
+%% Sort eigenvalues by magnitude and plot spatial modes
+% Sort eigenvalues by magnitude (descending order)
+[~, sorted_idx] = sort(abs(diag(Lambda)), 'descend');
+
+% Select top modes (e.g., modes ranked 1, 4, 7, 10, 13, 16, 19, 22, 25)
+eig_list = sorted_idx(2:2:18);  % 9 modes from sorted list
+
+% OR if you want specific range after sorting:
+% eig_list = sorted_idx(1:9);   % Top 9 modes by magnitude
+
+figure('Color','w','Position',[100 100 1200 900]);
+tl = tiledlayout(3,3, 'Padding','compact', 'TileSpacing','compact');
+
+for k = 1:length(eig_list)
+    eig_id_i = eig_list(k);
+    
+    % -------------------------------
+    % Dual Koopman mode (physical space)
+    % -------------------------------
+    Dual_KMode_temp = Xa * (PX * V(:, eig_id_i));   % 20860 × 1
+    phi_field = abs(Dual_KMode_temp(1:latN*lonN));
+    phi_field = reshape(phi_field, [latN, lonN]);
+    
+    % -------------------------------
+    % Plot
+    % -------------------------------
+    nexttile;
+    
+    imagesc(lon_sub(1,:), lat_sub(:,1), phi_field);
+    set(gca,'YDir','normal');
+    axis equal tight;
+    cmax = max(phi_field(:));
+    clim([0 cmax]);
+    colormap(brighten(redblueTecplot(21), -0.55));
+    
+    % Coastlines
+    hold on;
+    for kk = 1:length(S)
+        plot(S(kk).X, S(kk).Y, 'k-', 'LineWidth', 0.8);
+    end
+    hold off;
+    
+    % Title with eigenvalue magnitude rank
+    title( ...
+        sprintf('$\\varphi_{%d},\\; |\\lambda|=%.3f,\\; \\lambda = %.2f %+ .2fi$', ...
+        eig_id_i, abs(Lambda(eig_id_i)), real(Lambda(eig_id_i)), imag(Lambda(eig_id_i))), ...
+        'Interpreter','latex', 'FontSize', 10);
+    xlabel('Longitude');
+    ylabel('Latitude');
+    xlim([min(lon_sub(:)), max(lon_sub(:))]);
+    ylim([min(lat_sub(:)), max(lat_sub(:))]);
+end
+
+% -------------------------------
+% Shared colorbar
+% -------------------------------
+cb = colorbar;
+cb.Layout.Tile = 'east';
+ylabel(cb, '$|\varphi|$', 'Interpreter','latex');
+
+
+
+%%% original data 
+
+%% 3D Plot: Ensemble Trajectories (spatial dimension) with color-coded values
+%% 3D Plot: Ensemble Trajectories 
+figure('Position', [100, 100, 1200, 800]);
+hold on;
+
+% Snapshots (columns)
+n_snapshots = size(Xa_ens{1}, 2);  % 71
+snapshots = 0:n_snapshots-1;  % 0 to 70
+
+% --- FIRST: Plot enPREC100 (mean trajectory) as RED at x=100 ---
+spatial_mean_100 = mean(Xa_mean, 1);  % 1 × 71 (mean over 20860 spatial points)
+ensemble_idx_mean = ones(size(snapshots)) * 100;  % x = 100
+
+plot3(ensemble_idx_mean, snapshots, spatial_mean_100, ...
+      'r-', 'LineWidth', 4, 'DisplayName', 'enPREC100 (Mean of All Ensembles)');
+
+% --- Collect all spatial means to determine color scale ---
+all_means = [];
+for m = 1:M
+    spatial_mean = mean(Xa_ens{m}, 1);  % Mean across 20860 rows
+    all_means = [all_means, spatial_mean];
+end
+
+cmin = min(all_means);
+cmax = max(all_means);
+
+% --- SECOND: Plot each ensemble member (0 to 99) ---
+for m = 1:M
+    % Compute spatial mean for each snapshot (mean across 20860 spatial points)
+    spatial_mean = mean(Xa_ens{m}, 1);  % 1 × 71
+    
+    % Ensemble index (0 to 99)
+    ensemble_idx = ones(size(snapshots)) * (m-1);  % 0, 1, 2, ..., 99
+    
+    % Plot with color coding (x=ensemble, y=snapshots, z=spatial_mean)
+    patch([ensemble_idx, nan], [snapshots, nan], [spatial_mean, nan], ...
+          [spatial_mean, nan], ...
+          'EdgeColor', 'interp', 'FaceColor', 'none', 'LineWidth', 1.5);
+end
+
+hold off;
+
+% Labels and formatting
+xlabel('Ensemble Member Index (0-100)');
+ylabel('Snapshot/Time Step (0-70)');
+zlabel('Spatial Mean of PREC');
+title('3D Ensemble Trajectories');
+colorbar;
+colormap('jet');
+caxis([cmin cmax]);
+legend('Location', 'best');
+grid on;
+view(3);
+rotate3d on;
+view(45, 30);
