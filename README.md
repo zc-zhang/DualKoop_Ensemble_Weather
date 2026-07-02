@@ -1,1 +1,1 @@
-## Dual Koopman Opertaor Approach to Ensemble Dynamical Systems
+# Dual Koopman Operator to Ensemble Dynamical Systems
