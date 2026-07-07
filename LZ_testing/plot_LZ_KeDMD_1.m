@@ -80,7 +80,9 @@ N_dict = 100; % Choose your dictionary size (e.g., 150 features)
 fprintf('Running kernel_ResDMD with N = %d features...\n', N_dict);
 
 %%Run the original code signature to get the clean truncated spaces
-[G, K_star, L, PX, PY, PSI_x, PSI_y, PSI_y2, G1, A1, kernel_f] = ...
+%[G, K_star, L, PX, PY, PSI_x, PSI_y, PSI_y2, G1, A1, kernel_f] = ...
+   % kernel_ResDMD(Xa_all, Ya_all, 'type', 'Gaussian', 'N', N_dict);
+   [G, K_star, L, PX, PY, kernel_f] = ...
     kernel_ResDMD(Xa_all, Ya_all, 'type', 'Gaussian', 'N', N_dict);
 
 % 3. COMPUTE THE DISCRETE FEATURE COMPONENTS HERE (FIXED)
@@ -93,7 +95,9 @@ fprintf('Computing KEs, KEFs, and KMs on the truncated space...\n');
     KEs = diag(Lambda_mat);
     KEFs = PX * V_coeff;
 
-    KMs     = Xa_all * pinv(KEFs).';
+   % KMs     = Xa_all * pinv(KEFs).';
+   KMs = Xa_all * pinv(KEFs.'); 
+   %KMs = (KEFs.' \ Xa_all.').' ;   % uses QR, much faster
     Ya_pred = KMs * Lambda_mat * KEFs.';
 
 
@@ -107,12 +111,23 @@ fprintf('=======================================\n');
 
 %% Additional RESIDUAL compute 
 %% --- 1. Compute the Residuals (Your Current Block) ---
-denominators = sum(abs(V_coeff).^2, 1).'; 
-numerators = real(sum(conj(V_coeff) .* (L * V_coeff), 1)).';
-RES = sqrt(max(0, (numerators ./ denominators) - abs(KEs).^2));
+% denominators = sum(abs(V_coeff).^2, 1).'; 
+% numerators = real(sum(conj(V_coeff) .* (L * V_coeff), 1)).';
+% RES = sqrt(max(0, (numerators ./ denominators) - abs(KEs).^2));
+
+RES = zeros(N_dict, 1);
+for j = 1:N_dict
+    v   = V_coeff(:, j);
+    lam = KEs(j);
+    % Full residual: ||Ug - λg||² / ||g||²
+    res_num = real(v' * (L - conj(lam)*K_star - lam*K_star' + abs(lam)^2*G) * v);
+    res_den = real(v' * G * v);
+    RES(j)  = sqrt(max(0, res_num / res_den));
+end
+%[~, sort_res_idx] = sort(RES, 'ascend');  % small residual = genuine eigenvalue
 
 %% --- 2. Sort by Residual in ASCENDING Order (Best Physics First) ---
-[sorted_RES, sort_residual_idx] = sort(RES, 'ascend');
+[sorted_RES, sort_res_idx] = sort(RES, 'ascend');
 
 %% --- 3. Evaluate Reconstruction Across Your Truncation Set ---
 %%  Compute Trajectory Errors ---
@@ -125,7 +140,7 @@ error_data = zeros(M, num_tests);
 Ya_pred_N_ditcs = cell(num_tests, 1);
 
 for i = 1:num_tests
-    active_indices = sort_residual_idx(1:N_dict_trunc_set(i));
+    active_indices = sort_res_idx(1:N_dict_trunc_set(i));
     
     % Quick Reconstruction Slicing
     V_trunc = V_coeff(:, active_indices);
@@ -1029,22 +1044,22 @@ fprintf('Outlier (member,mode) pairs (|z|>3.5):\n'); disp([flag_i flag_j]);
 
 %% 7. VISUALIZATION 3: Eigenfunction Spatial Slices
 %%Build a dense 2D domain evaluation map at Z = 20
-[gridX, gridY] = meshgrid(linspace(-20, 20, 100), linspace(-20, 20, 100));
-X_test = [gridX(:)'; gridY(:)'; 20 * ones(1, 100*100)];
-
-%%Calculate distance correlations using the native script's kernel function
-G_test = kernel_f(X_test, Xa_all);
-
-% Map the continuous slice to the first non-trivial eigenfunction track
-% G_test is [10000 x 2400], G1 is [2400 x 2400] (or use pseudo-inverse logic)
-% The mathematically clean projection for grid eigenfunctions:
-Psi_grid = G_test * (G1 \ PX_trunc) * V_coeff(:, 1);
-
-figure;
-contourf(gridX, gridY, reshape(real(Psi_grid), 100, 100), 25, 'LineColor', 'none');
-colormap(jet); colorbar;
-title('Koopman Eigenfunction Spatial Map Slice (Z = 20)');
-xlabel('X'); ylabel('Y');
+% [gridX, gridY] = meshgrid(linspace(-20, 20, 100), linspace(-20, 20, 100));
+% X_test = [gridX(:)'; gridY(:)'; 20 * ones(1, 100*100)];
+% 
+% %%Calculate distance correlations using the native script's kernel function
+% G_test = kernel_f(X_test, Xa_all);
+% 
+% % Map the continuous slice to the first non-trivial eigenfunction track
+% % G_test is [10000 x 2400], G1 is [2400 x 2400] (or use pseudo-inverse logic)
+% % The mathematically clean projection for grid eigenfunctions:
+% Psi_grid = G_test * (G1 \ PX_trunc) * V_coeff(:, 1);
+% 
+% figure;
+% contourf(gridX, gridY, reshape(real(Psi_grid), 100, 100), 25, 'LineColor', 'none');
+% colormap(jet); colorbar;
+% title('Koopman Eigenfunction Spatial Map Slice (Z = 20)');
+% xlabel('X'); ylabel('Y');
 
 
 
