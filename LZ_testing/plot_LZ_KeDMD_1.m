@@ -24,21 +24,6 @@ MT_snap = M*T_snap;
 T_burn  = 5;    % burn-in time so each IC is already near/on the attractor
 options = odeset('RelTol',1e-10,'AbsTol',1e-11);
 
-%X0_raw  = 1*(rand(3,M)-0.5) + [0;0;10];   % crude spread of raw ICs
-% X0_raw  = 1*(rand(3,M)-0.01) + [0;0;10];   % crude spread of raw ICs
-% Xa_ens  = cell(M,1);  Ya_ens = cell(M,1);  X0_all = zeros(3,M);
-% 
-% fprintf('Generating %d ensemble Lorenz trajectories (ICs vary only)...\n', M);
-% for m = 1:M
-%     ode_use = ODEFUN;
-%     [~,Yb] = ode45(ode_use, [0 T_burn], X0_raw(:,m), options);
-%     x0 = Yb(end,:)';  X0_all(:,m) = x0;
-%     t_grid = 0:delta_t:(T_snap*delta_t);
-%     [~,Ytraj] = ode45(ode_use, t_grid, x0, options);
-%     Ytraj = Ytraj';
-%     Xa_ens{m} = Ytraj(:,1:end-1);
-%     Ya_ens{m} = Ytraj(:,2:end);
-% end
 
 %% CRITICAL FIX: Initialize all members in a tight ball on ONE WING center
 % UNIQUE LOCALIZED BATCH: Pick a point on the outer edge of the attractor
@@ -49,17 +34,17 @@ base_IC = [-10.0; -15.0; 25.0];
 X0_raw = 0.015 * (rand(3, M) - 0.5) + base_IC;
 
 Xa_ens  = cell(M,1);  Ya_ens = cell(M,1);  X0_all = zeros(3,M);
-
+% 
 for m = 1:M
     % Brief burn-in to settle the tight batch onto the attractor manifold smoothly
     [~,Y_burn] = ode45(ODEFUN, [0 T_burn], X0_raw(:,m), options);
     X0 = Y_burn(end,:).';
     X0_all(:,m) = X0;
-    
+
     % Core simulation tracking
     t_span = 0:delta_t:(T_snap*delta_t);
     [~,Y_orbit] = ode45(ODEFUN, t_span, X0, options);
-    
+
     Xa_ens{m} = Y_orbit(1:end-1,:).'; 
     Ya_ens{m} = Y_orbit(2:end,:).';   
 end
@@ -72,9 +57,9 @@ fprintf('Done. Total snapshots pooled: %d\n', Total_Snapshots);
 
 
 %% --- SAVE POOLED DATA TO FILE ---
-save('LZ_ensemble_raw_data01.mat', 'Xa_all', 'Ya_all');
-fprintf('Pooled ensemble data successfully saved to LZ_ensemble_raw_data01.mat!\n');
-
+% save('LZ_ensemble_raw_data01.mat', 'Xa_all', 'Ya_all');
+% fprintf('Pooled ensemble data successfully saved to LZ_ensemble_raw_data01.mat!\n');
+% 
 % % %% 2. RUN COLBROOK'S ORIGINAL SCRIPT WITH TRUNCATION SIZE N
 N_dict = 100; % Choose your dictionary size (e.g., 150 features)
 fprintf('Running kernel_ResDMD with N = %d features...\n', N_dict);
@@ -82,8 +67,8 @@ fprintf('Running kernel_ResDMD with N = %d features...\n', N_dict);
 %%Run the original code signature to get the clean truncated spaces
 %[G, K_star, L, PX, PY, PSI_x, PSI_y, PSI_y2, G1, A1, kernel_f] = ...
    % kernel_ResDMD(Xa_all, Ya_all, 'type', 'Gaussian', 'N', N_dict);
-   [G, K_star, L, PX, PY, kernel_f] = ...
-    kernel_ResDMD(Xa_all, Ya_all, 'type', 'Gaussian', 'N', N_dict);
+   [G, K_star, L, PX, PY] = ...
+   kernel_ResDMD(Xa_all, Ya_all, 'type', 'Gaussian', 'N', N_dict);
 
 % 3. COMPUTE THE DISCRETE FEATURE COMPONENTS HERE (FIXED)
 fprintf('Computing KEs, KEFs, and KMs on the truncated space...\n');
@@ -518,7 +503,7 @@ figure('Position', [100, 100, 1100, 450]);
 % Left Panel: Eigenfunction Magnitude Mapping
 subplot(1, 2, 1);
 scatter3(Ya_all(1,:), Ya_all(2,:), Ya_all(3,:), 15, kef_real, 'filled');
-title(['KEF Mode ' num2str(mode_to_plot) ' Real Part Re(\varphi)']);
+title(['Koopman Eigenfunction' num2str(mode_to_plot) ' Real Part Re(\varphi)']);
 xlabel('X'); ylabel('Y'); zlabel('Z');
 colormap(subplot(1,2,1),jet); % 'hot' or 'magma' works great for magnitude intensities
 colorbar;
@@ -527,7 +512,7 @@ view(45, 20); grid on; axis tight;
 % Right Panel: Eigenfunction Phase Angle Mapping
 subplot(1, 2, 2);
 scatter3(Ya_all(1,:), Ya_all(2,:), Ya_all(3,:), 15, kef_phase, 'filled');
-title(['KEF Mode ' num2str(mode_to_plot) ' Phase Angle \angle\varphi (rad)']);
+title(['Koopman Eigenfunction' num2str(mode_to_plot) ' Phase Angle \angle\varphi (rad)']);
 xlabel('X'); ylabel('Y'); zlabel('Z');
 colormap(subplot(1,2,2), hsv); % 'hsv' is perfect for phase because it is cyclic (-pi matches +pi)
 colorbar;
@@ -714,7 +699,11 @@ for j_test = 1:max_J
     end
 end
 
-% --- CRITICAL: Row-by-Row Normalization to force J=1 to be exactly 100% ---
+
+
+
+
+%% --- CRITICAL: Row-by-Row Normalization to force J=1 to be exactly 100% ---
 trajectory_errors = zeros(M, max_J);
 for m = 1:M
     % Divide each trajectory's profile by its own error at J=1, then scale to %
@@ -1009,37 +998,136 @@ fprintf('%d / %d trajectories exceed %.1f%% error at J=%d\n', ...
         n_fail, M, tol_percent, J_check);
 
 
-%===================================
 
-%% --- Build the ensemble Participation Factor matrix P(i,j) ---
-%J = size(KEFs,2);
-xi_norm = vecnorm(KMs,2,1);              % 1 x J,  ||xi_j||
-phi0 = abs(KEFs(init_indices,:));        % M x J,  |varphi_j(x0^i)|
-P = phi0 .* xi_norm;                     % M x J,  ensemble participation factors
+%=========================
+% =====================================================================
+%  Dual-Koopman anomaly score, built ONLY from operator-native
+%  quantities: eigenvalues lambda_j and t=0 eigenfunction values
+%  varphi_j(x0^i). No re-evaluation of KEFs at future snapshots --
+%  the time-evolution comes from the operator's own lambda_j^t,
+%  not from re-measuring the real trajectory.
+% ======================================================================
 
-%% --- (a) Dominant mode per trajectory ---
-[~, dom_mode] = max(P,[],2);             % M x 1
-figure; bar(dom_mode); xlabel('Ensemble member i'); ylabel('Dominant mode index j^*');
-title('Dominant participating mode per ensemble member');
 
-%% --- (b) Heatmap: full participation structure across ensemble x mode ---
-figure; imagesc(P); colorbar; xlabel('Mode j'); ylabel('Ensemble member i');
-title('Participation Factor matrix P(i,j) = |\varphi_j(x_0^i)| \cdot ||\xi_j||');
 
-%% --- (c) Abnormal-trajectory detection: profile distance from ensemble mean ---
-P_mean = mean(P,1);                      % 1 x J
-d_i = vecnorm(P - P_mean, 2, 2);         % M x 1, Euclidean distance from mean profile
-figure; bar(d_i); xlabel('Ensemble member i'); ylabel('Profile deviation ||P_i - mean||');
-title('Abnormality score: PF-profile distance from ensemble mean');
-[~, abn_idx] = max(d_i);
-hold on; bar(abn_idx, d_i(abn_idx), 'r');
-text(abn_idx, d_i(abn_idx)*1.05, ['\leftarrow traj #' num2str(abn_idx)],'Color','r');
+%======================== ok !
 
-%% --- (d) Per-mode robust outlier flags (MAD-based) ---
-med = median(P,1); MAD = median(abs(P-med),1) + eps;
-z = abs(P - med) ./ (1.4826*MAD);        % M x J robust z-scores
-[flag_i, flag_j] = find(z > 3.5);        % (member, mode) pairs that are outliers
-fprintf('Outlier (member,mode) pairs (|z|>3.5):\n'); disp([flag_i flag_j]);
+%% =====================================================================
+%  Time-resolved anomaly score, using a J tied to the reconstruction-
+%  error convergence test (err_raw block), not an arbitrary constant.
+% ======================================================================
+
+% --- 0. Pick J from the reconstruction-error elbow, not by hand ---
+% Requires mode_power, sort_idx, J_list, err_raw already computed
+% (the "TEST: Is the rank-J Koopman surrogate suitable for EVERY member" block)
+median_err = median(err_raw, 1);                 % 1 x numel(J_list)
+elbow_pos  = find(median_err <= 1.05*min(median_err), 1, 'first');
+J = J_list(elbow_pos);
+fprintf('Using J = %d modes (elbow of reconstruction-error curve)\n', J);
+
+active_modes = sort_idx(1:J);   % same ranking used for reconstruction, reused here
+
+% --- 1. Build time x member x mode array using the SAME active modes ---
+KEF3   = reshape(KEFs(:, active_modes), steps_per_traj, M, J);   % time x member x J
+mean_t = mean(KEF3, 2);                                          % time x 1 x J
+centered_t = KEF3 - mean_t;                                      % time x member x J
+anomaly_t  = sum(abs(centered_t).^2, 3);                         % time x member
+
+% --- 2. Single aggregate score per member (this replaces ALL earlier
+%         anomaly_scores / KEF_initials_all / mean_inits definitions) ---
+total_anomaly = sum(anomaly_t, 1)';                              % M x 1
+[sorted_val, sorted_idx] = sort(total_anomaly, 'descend');
+bad_ensemble_idx = sorted_idx(1);
+max_score = sorted_val(1);
+fprintf('Most abnormal trajectory: #%d (score = %.4f)\n', bad_ensemble_idx, max_score);
+
+%% --- 3. Main figure: sorted bar chart, worst AND best highlighted ---
+figure('Color','w','Position',[200,200,700,420]);
+bar(sorted_val, 'FaceColor',[0.2,0.6,0.8], 'EdgeColor','none');
+hold on;
+
+% Worst (first bar, since sorted descending)
+bar(1, sorted_val(1), 'FaceColor',[0.9,0.2,0.2], 'EdgeColor','none');
+text(1, sorted_val(1)*1.05, sprintf('\\leftarrow Worst: traj #%d', bad_ensemble_idx), ...
+     'FontWeight','bold', 'Color',[0.9,0.2,0.2]);
+
+% Best (last bar, since sorted descending)
+best_ensemble_idx = sorted_idx(end);
+bar(M, sorted_val(end), 'FaceColor',[0.2,0.7,0.3], 'EdgeColor','none');
+text(M, sorted_val(end) + 0.05*max(sorted_val), ...
+     sprintf('Best: traj #%d \\rightarrow', best_ensemble_idx), ...
+     'HorizontalAlignment','right', 'FontWeight','bold', 'Color',[0.2,0.7,0.3]);
+
+xticks(1:M); xticklabels(string(sorted_idx)); xtickangle(45);
+xlabel('Ensemble index (sorted)');
+ylabel(sprintf('Anomaly score ($L_2$, $J=N_d=%d$ modes)', J), 'Interpreter', 'latex');
+title('Dual Koopman ensemble anomaly detection: worst vs. best');
+grid on;
+
+%% --- 4. Supporting figure: onset/timing of divergence, worst vs. best ---
+figure('Color','w'); hold on;
+normal_band = anomaly_t;
+normal_band(:, sorted_idx(1)) = NaN;    % exclude worst from the envelope
+lo = min(normal_band, [], 2, 'omitnan');
+hi = max(normal_band, [], 2, 'omitnan');
+t_axis = 1:steps_per_traj;
+fill([t_axis fliplr(t_axis)], [lo' fliplr(hi')], [0.85 0.85 0.85], ...
+     'EdgeColor','none', 'FaceAlpha',0.6, 'DisplayName','Rest of ensemble (range)');
+plot(t_axis, anomaly_t(:,sorted_idx(1)), 'r', 'LineWidth',2, ...
+     'DisplayName', sprintf('Member #%d (worst)', sorted_idx(1)));
+plot(t_axis, anomaly_t(:,sorted_idx(end)), 'g', 'LineWidth',2, ...
+     'DisplayName', sprintf('Member #%d (best/most typical)', sorted_idx(end)));
+plot(t_axis, anomaly_t(:,sorted_idx(2)), 'b--', 'LineWidth',1.2, ...
+     'DisplayName', sprintf('Member #%d (2nd worst)', sorted_idx(2)));
+xlabel('Time step'); ylabel('Deviation from ensemble mean');
+legend; title('Anomaly score over time: worst vs. best vs. ensemble range'); grid on;
+
+
+%% --- 5. Optional: attractor plot, only the outlier highlighted ---
+rows_bad = ((bad_ensemble_idx-1)*steps_per_traj+1):(bad_ensemble_idx*steps_per_traj);
+figure('Color','w'); hold on;
+plot3(Ya_all(1,:), Ya_all(2,:), Ya_all(3,:), 'Color',[0.85 0.85 0.85]);
+scatter3(Ya_all(1,rows_bad), Ya_all(2,rows_bad), Ya_all(3,rows_bad), ...
+         20, anomaly_t(:,bad_ensemble_idx), 'filled');
+colormap(hot); colorbar; view(45,20); grid on;
+title(sprintf('Trajectory #%d colored by time-resolved deviation', bad_ensemble_idx));
+
+% --- 6. Optional: heatmap, kept but not primary (uncomment if wanted) ---
+figure('Color','w');
+imagesc(anomaly_t'); xlabel('Time step'); ylabel('Ensemble member i');
+title('Time-resolved anomaly score'); colormap(hot); colorbar;
+
+%%============No PF needed here
+%%% NO PF here
+% %% --- Build the ensemble Participation Factor matrix P(i,j) ---
+% %J = size(KEFs,2);
+% xi_norm = vecnorm(KMs,2,1);              % 1 x J,  ||xi_j||
+% phi0 = abs(KEFs(init_indices,:));        % M x J,  |varphi_j(x0^i)|
+% P = phi0 .* xi_norm;                     % M x J,  ensemble participation factors
+% 
+% %% --- (a) Dominant mode per trajectory ---
+% [~, dom_mode] = max(P,[],2);             % M x 1
+% figure; bar(dom_mode); xlabel('Ensemble member i'); ylabel('Dominant mode index j^*');
+% title('Dominant participating mode per ensemble member');
+% 
+% %% --- (b) Heatmap: full participation structure across ensemble x mode ---
+% figure; imagesc(P); colorbar; xlabel('Mode j'); ylabel('Ensemble member i');
+% title('Participation Factor matrix P(i,j) = |\varphi_j(x_0^i)| \cdot ||\xi_j||');
+% 
+% %% --- (c) Abnormal-trajectory detection: profile distance from ensemble mean ---
+% P_mean = mean(P,1);                      % 1 x J
+% d_i = vecnorm(P - P_mean, 2, 2);         % M x 1, Euclidean distance from mean profile
+% figure; bar(d_i); xlabel('Ensemble member i'); ylabel('Profile deviation ||P_i - mean||');
+% title('Abnormality score: PF-profile distance from ensemble mean');
+% [~, abn_idx] = max(d_i);
+% hold on; bar(abn_idx, d_i(abn_idx), 'r');
+% text(abn_idx, d_i(abn_idx)*1.05, ['\leftarrow traj #' num2str(abn_idx)],'Color','r');
+% 
+% %% --- (d) Per-mode robust outlier flags (MAD-based) ---
+% med = median(P,1); MAD = median(abs(P-med),1) + eps;
+% z = abs(P - med) ./ (1.4826*MAD);        % M x J robust z-scores
+% [flag_i, flag_j] = find(z > 3.5);        % (member, mode) pairs that are outliers
+% fprintf('Outlier (member,mode) pairs (|z|>3.5):\n'); disp([flag_i flag_j]);
 
 
 %% 7. VISUALIZATION 3: Eigenfunction Spatial Slices
@@ -1068,192 +1156,192 @@ fprintf('Outlier (member,mode) pairs (|z|>3.5):\n'); disp([flag_i flag_j]);
 %% Ensemble Correlation Function
 %% ==========================================================
 
-maxLag = steps_per_traj-1;
-
-Corr = zeros(maxLag+1,1);
-
-for tau = 0:maxLag
-
-    total = 0;
-    counter = 0;
-
-    for m = 1:M
-
-        X = Ya_true_ens{m};
-
-        for k = 1:steps_per_traj-tau
-
-            total = total + dot(X(:,k),X(:,k+tau));
-            counter = counter + 1;
-
-        end
-
-    end
-
-    Corr(tau+1)=total/counter;
-
-end
-
-Corr = Corr/Corr(1);
-
-figure
-
-plot((0:maxLag)*delta_t,Corr,'LineWidth',2)
-
-xlabel('Time')
-
-ylabel('Normalized Correlation')
-
-title('Ensemble Correlation Decay')
-
-grid on
-
-
-%% Resposnse Arropws
-k = 65;
-
-Xk=zeros(3,M);
-
-for m=1:M
-    Xk(:,m)=Ya_ens{m}(:,k);
-end
-
-meanX=mean(Xk,2);
-
-figure
-
-hold on
-grid on
-axis equal
-
-%% Lorenz trajectories
-
-for m=1:M
-
-    plot3( ...
-        Ya_ens{m}(1,:), ...
-        Ya_ens{m}(2,:), ...
-        Ya_ens{m}(3,:), ...
-        'Color',[0.85 0.85 0.85]);
-
-end
-
-%% Ensemble members
-
-scatter3(Xk(1,:),Xk(2,:),Xk(3,:),50,'b','filled')
-
-%% Mean
-
-scatter3(meanX(1),meanX(2),meanX(3),180,'r','filled')
-
-%% Response arrows
-
-scale = 1;
-
-for m=1:M
-
-    d = Xk(:,m)-meanX;
-
-    quiver3( ...
-        meanX(1),meanX(2),meanX(3), ...
-        scale*d(1), ...
-        scale*d(2), ...
-        scale*d(3), ...
-        0,'k','LineWidth',1.5);
-
-end
-
-xlabel('x')
-ylabel('y')
-zlabel('z')
-
-title('Ensemble Response Vectors')
-
-
-%% ========= Dual Koopman Response
-J=5;
-
-active_modes = sort_drift_idx(1:J);
-
-Y_response = ...
-KMs(:,active_modes) ...
-* Lambda_mat(active_modes,active_modes) ...
-* centered_KEFs_all(:,active_modes).';
-
-Y_tensor = reshape(Y_response,3,steps_per_traj,M);
-
-k=65;
-
-Yk=zeros(3,M);
-
-for m=1:M
-
-    Yk(:,m)=Y_tensor(:,k,m);
-
-end
-
-meanY=mean(Yk,2);
-
-figure
-
-hold on
-
-grid on
-
-axis equal
-
-scatter3(Yk(1,:),Yk(2,:),Yk(3,:),40,'filled')
-
-scatter3(meanY(1),meanY(2),meanY(3),180,'r','filled')
-
-for m=1:M
-
-    d=Yk(:,m)-meanY;
-
-    quiver3( ...
-        meanY(1), ...
-        meanY(2), ...
-        meanY(3), ...
-        d(1), ...
-        d(2), ...
-        d(3), ...
-        0,'LineWidth',1.5);
-
-end
-
-xlabel('x')
-ylabel('y')
-zlabel('z')
-
-title(sprintf('Dual Koopman Response (First %d Modes)',J));
-
-
-%% DUAL mean -filed 
-
-figure
-
-hold on
-
-Jshow = 6;
-
-for j=1:Jshow
-
-    subplot(Jshow,1,j)
-
-    hold on
-
-    for m=1:M
-
-        idx=(m-1)*steps_per_traj+(1:steps_per_traj);
-
-        plot( ...
-            real(centered_KEFs_all(idx,j)), ...
-            'LineWidth',0.8);
-
-    end
-
-    ylabel(sprintf('Mode %d',j))
-
-end
-
-xlabel('Time Step')
+% maxLag = steps_per_traj-1;
+% 
+% Corr = zeros(maxLag+1,1);
+% 
+% for tau = 0:maxLag
+% 
+%     total = 0;
+%     counter = 0;
+% 
+%     for m = 1:M
+% 
+%         X = Ya_true_ens{m};
+% 
+%         for k = 1:steps_per_traj-tau
+% 
+%             total = total + dot(X(:,k),X(:,k+tau));
+%             counter = counter + 1;
+% 
+%         end
+% 
+%     end
+% 
+%     Corr(tau+1)=total/counter;
+% 
+% end
+% 
+% Corr = Corr/Corr(1);
+% 
+% figure
+% 
+% plot((0:maxLag)*delta_t,Corr,'LineWidth',2)
+% 
+% xlabel('Time')
+% 
+% ylabel('Normalized Correlation')
+% 
+% title('Ensemble Correlation Decay')
+% 
+% grid on
+% 
+% 
+% %% Resposnse Arropws
+% k = 65;
+% 
+% Xk=zeros(3,M);
+% 
+% for m=1:M
+%     Xk(:,m)=Ya_ens{m}(:,k);
+% end
+% 
+% meanX=mean(Xk,2);
+% 
+% figure
+% 
+% hold on
+% grid on
+% axis equal
+% 
+% %% Lorenz trajectories
+% 
+% for m=1:M
+% 
+%     plot3( ...
+%         Ya_ens{m}(1,:), ...
+%         Ya_ens{m}(2,:), ...
+%         Ya_ens{m}(3,:), ...
+%         'Color',[0.85 0.85 0.85]);
+% 
+% end
+% 
+% %% Ensemble members
+% 
+% scatter3(Xk(1,:),Xk(2,:),Xk(3,:),50,'b','filled')
+% 
+% %% Mean
+% 
+% scatter3(meanX(1),meanX(2),meanX(3),180,'r','filled')
+% 
+% %% Response arrows
+% 
+% scale = 1;
+% 
+% for m=1:M
+% 
+%     d = Xk(:,m)-meanX;
+% 
+%     quiver3( ...
+%         meanX(1),meanX(2),meanX(3), ...
+%         scale*d(1), ...
+%         scale*d(2), ...
+%         scale*d(3), ...
+%         0,'k','LineWidth',1.5);
+% 
+% end
+% 
+% xlabel('x')
+% ylabel('y')
+% zlabel('z')
+% 
+% title('Ensemble Response Vectors')
+% 
+% 
+% %% ========= Dual Koopman Response
+% J=5;
+% 
+% active_modes = sort_drift_idx(1:J);
+% 
+% Y_response = ...
+% KMs(:,active_modes) ...
+% * Lambda_mat(active_modes,active_modes) ...
+% * centered_KEFs_all(:,active_modes).';
+% 
+% Y_tensor = reshape(Y_response,3,steps_per_traj,M);
+% 
+% k=65;
+% 
+% Yk=zeros(3,M);
+% 
+% for m=1:M
+% 
+%     Yk(:,m)=Y_tensor(:,k,m);
+% 
+% end
+% 
+% meanY=mean(Yk,2);
+% 
+% figure
+% 
+% hold on
+% 
+% grid on
+% 
+% axis equal
+% 
+% scatter3(Yk(1,:),Yk(2,:),Yk(3,:),40,'filled')
+% 
+% scatter3(meanY(1),meanY(2),meanY(3),180,'r','filled')
+% 
+% for m=1:M
+% 
+%     d=Yk(:,m)-meanY;
+% 
+%     quiver3( ...
+%         meanY(1), ...
+%         meanY(2), ...
+%         meanY(3), ...
+%         d(1), ...
+%         d(2), ...
+%         d(3), ...
+%         0,'LineWidth',1.5);
+% 
+% end
+% 
+% xlabel('x')
+% ylabel('y')
+% zlabel('z')
+% 
+% title(sprintf('Dual Koopman Response (First %d Modes)',J));
+% 
+% 
+% %% DUAL mean -filed 
+% 
+% figure
+% 
+% hold on
+% 
+% Jshow = 6;
+% 
+% for j=1:Jshow
+% 
+%     subplot(Jshow,1,j)
+% 
+%     hold on
+% 
+%     for m=1:M
+% 
+%         idx=(m-1)*steps_per_traj+(1:steps_per_traj);
+% 
+%         plot( ...
+%             real(centered_KEFs_all(idx,j)), ...
+%             'LineWidth',0.8);
+% 
+%     end
+% 
+%     ylabel(sprintf('Mode %d',j))
+% 
+% end
+% 
+% xlabel('Time Step')
