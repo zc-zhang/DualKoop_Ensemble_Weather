@@ -28,8 +28,8 @@ fprintf('Kumamoto is at Index: %d (Row: %d, Col: %d)\n', Kumamoto_Locatidx, r, c
 
 
 %% STEP 1: Run kernel_ResDMD (unchanged)
-N_dict = 100;
-[G, K, L, PX, PY, PSI_x0, ~, ~, G1, A1, kernel_f] = kernel_ResDMD(...
+N_dict = 500;
+[G, K_res, L, PX, PY, PSI_x0, ~, ~, G1, A1, UU,kernel_f] = kernel_ResDMD(...
     Xa_all, Ya_all, ...
     'type',    'Laplacian',...
     'N',       N_dict, ...
@@ -39,7 +39,8 @@ N_dict = 100;
 
 %% STEP 2: Eigendecompose K_staryese
 % dual Koopman
-[V_coeff, Lamda]   = eig(K,G);
+
+[V_coeff, Lamda]   = eig(K_res);
 KEs   = diag(Lamda);
 
 %% KEFs
@@ -56,6 +57,58 @@ KEFs = PX * V_coeff;  % naive case
     KMs = Xa_all * pinv(KEFs.');   %%  KMs = Xa_all / (KEFs.'); correct
  %   % Ya_pred = KMs * Lambda * KEFs.';
   Ya_pred = KMs * diag(KEs) * KEFs.'; 
+
+
+
+  %%  Dual Koopman case 
+% K_dual =K_res';
+% [V_dual,Lam_dual] = eig(K_dual);
+% 
+% lam_dual = diag(Lam_dual);
+% 
+% %% Initial ensemble coordinates
+% 
+% Phi_x0 = kernel_f(X0_all,Xa_all)'*UU;
+% 
+% Phi_x0 = Phi_x0.';
+% C0 = V_dual \ Phi_x0;
+% 
+% Phi_modes = (PX*V_coeff).';
+% 
+% KMs_dual = Xa_all*pinv(Phi_modes);
+% 
+% M = size(X0_all,2);   % ensemble size = 100
+% T = size(Ya_all,2)/M; % time length
+% Ya_pred_dual = zeros(size(Ya_all));
+% 
+% for t = 0:T-1
+% 
+%     c_t = (lam_dual.^t).*C0;
+% 
+%     Yt = KMs_dual*c_t;
+% 
+%     idx=t+1:T:size(Ya_all,2);
+% 
+%     Ya_pred_dual(:,idx)=Yt;
+% 
+% end
+% 
+% %% Global relative error
+% 
+% err_naive = norm(Ya_all-Ya_pred,'fro') ...
+%           / norm(Ya_all,'fro');
+% 
+% err_dual = norm(Ya_all-Ya_pred_dual,'fro') ...
+%          / norm(Ya_all,'fro');
+% 
+% 
+% figure;
+% bar([err_naive,err_dual])
+% 
+% set(gca,'XTickLabel',{'KeDMD','Dual KMD'})
+% ylabel('Relative Frobenius error')
+% title('Global reconstruction error')
+% grid on
 
 
 %% --- 2. Automated Dual Koopman Sorting Mechanism ---
@@ -172,6 +225,15 @@ Ya_pred_ens_mean        = mean(Ya_pred_3D, 3);                % [20860 x 70]
 data_pred_EM_mean       = mean(Ya_pred_ens_mean, 1);          % [1 x 70]
 data_pred_EM_Kumamoto   = Ya_pred_ens_mean(Kumamoto_Locatidx, :);% [1 x 70]
 
+%-----------------------
+
+% % 100-Member dual Ensemble Mean (20860 x 70)
+% Ya_pred_dual_clean           = max(real(Ya_pred_dual), 0);
+% Ya_pred_dual_3D              = reshape(Ya_pred_dual_clean, 20860, 70, 100);
+% Ya_pred_ens_dual_mean        = mean(Ya_pred_dual_3D, 3);                % [20860 x 70]
+% data_pred_dual_EM_mean       = mean(Ya_pred_ens_dual_mean, 1);          % [1 x 70]
+% data_pred_dual_EM_Kumamoto   = Ya_pred_ens_dual_mean(Kumamoto_Locatidx, :);% [1 x 70]
+
 
 % --- C. X-AXIS TICK MARK FORMATTING ---
 tickTimes  = startTime : hours(6) : (startTime + hours(69));
@@ -253,6 +315,7 @@ ax1 = nexttile;
 plot(timeVec, data_raw_EM_mean, 'b-o', 'LineWidth', 2, 'MarkerSize', 4, 'DisplayName', 'Raw Ensemble Mean');
 hold on;
 plot(timeVec, data_pred_EM_mean, 'r--s', 'LineWidth', 2, 'MarkerSize', 4, 'DisplayName', 'Reconstructed Ensemble Mean');
+%plot(timeVec, data_pred_dual_EM_mean, 'r--s', 'LineWidth', 2, 'MarkerSize', 4, 'DisplayName', 'Reconstructed Ensemble Mean');
 hold off; grid on;
 ylabel('PREC (mm)', 'FontSize', 12);
 title('100-Member Ensemble Mean: Kyushu Spatial Area Average', 'FontSize', 13, 'FontWeight', 'bold');
@@ -264,6 +327,7 @@ set(ax1, 'XTickLabel', tickLabels, 'XTickLabelRotation', 25, 'FontSize', 11);
 ax2 = nexttile;
 plot(timeVec, data_raw_EM_Kumamoto, 'g-o', 'LineWidth', 2, 'MarkerSize', 4, 'DisplayName', 'Raw Ensemble Mean');
 hold on;
+%plot(timeVec, data_pred_dual_EM_Kumamoto, 'm--s', 'LineWidth', 2, 'MarkerSize', 4, 'DisplayName', 'Reconstructed Ensemble Mean');
 plot(timeVec, data_pred_EM_Kumamoto, 'm--s', 'LineWidth', 2, 'MarkerSize', 4, 'DisplayName', 'Reconstructed Ensemble Mean');
 hold off; grid on;
 xlabel('Date / Time (UTC)', 'FontSize', 12);
@@ -311,6 +375,7 @@ set(ax2, 'XTickLabel', tickLabels, 'XTickLabelRotation', 25, 'FontSize', 11);
 % Sum precipitation across all 70 time steps (Total Accumulated Rainfall in mm)
 Sum_Ya_raw_ens_mean  = sum(Ya_raw_ens_mean, 2);   % [20860 x 1]
 Sum_Ya_pred_ens_mean = sum(Ya_pred_ens_mean, 2);  % [20860 x 1]
+%Sum_Ya_pred_dual_ens_mean = sum(Ya_pred_ens_dual_mean, 2);
 
 % Absolute Difference / Error Field
 Diff_Accumulated = abs(Sum_Ya_raw_ens_mean - Sum_Ya_pred_ens_mean);
@@ -318,6 +383,7 @@ Diff_Accumulated = abs(Sum_Ya_raw_ens_mean - Sum_Ya_pred_ens_mean);
 % Reshape to 2D Spatial Grids [latN x lonN]
 Map_raw  = reshape(Sum_Ya_raw_ens_mean,  [latN, lonN]);
 Map_pred = reshape(Sum_Ya_pred_ens_mean, [latN, lonN]);
+%Map_dual_pred= reshape(Sum_Ya_pred_dual_ens_mean, [latN, lonN]);
 Map_diff = reshape(Diff_Accumulated,    [latN, lonN]);
 
 % Calculate common color limits for Raw vs Predicted
@@ -361,6 +427,7 @@ ylim([min(lat_sub(:)), max(lat_sub(:))]);
 % -------------------------------------------------------------
 nexttile;
 p2 = pcolor(lon_sub, lat_sub, Map_pred);
+%p2 = pcolor(lon_sub, lat_sub, Map_dual_pred);
 p2.EdgeColor = 'none'; shading interp; axis equal tight;
 set(gca, 'YDir', 'normal', 'FontSize', 10);
 clim([c_min, c_max]); % Enforce identical color scale as Raw
@@ -456,7 +523,7 @@ sgtitle('Dual Koopman spatial modes $V_j$', ...
 
 
 
-
+%% ==================Anomonly correctiion ciefficinet 
 
 
 %% Out-of-Sample Dual Amplitudes (RKHS Perturbation Analysis)
