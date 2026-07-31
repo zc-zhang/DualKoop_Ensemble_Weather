@@ -29,7 +29,7 @@ fprintf('Kumamoto is at Index: %d (Row: %d, Col: %d)\n', Kumamoto_Locatidx, r, c
 
 %% STEP 1: Run kernel_ResDMD (unchanged)
 N_dict = 500;
-[G, K_res, L, PX, PY, PSI_x0, ~, ~, G1, A1, UU,kernel_f] = kernel_ResDMD(...
+[G, K, L, PX, PY, PSI_x0, ~, ~, G1, A1, UU,kernel_f] = kernel_ResDMD(...
     Xa_all, Ya_all, ...
     'type',    'Laplacian',...
     'N',       N_dict, ...
@@ -40,7 +40,7 @@ N_dict = 500;
 %% STEP 2: Eigendecompose K_staryese
 % dual Koopman
 
-[V_coeff, Lamda]   = eig(K_res);
+[V_coeff, Lamda]   = eig(K);
 KEs   = diag(Lamda);
 
 %% KEFs
@@ -60,8 +60,8 @@ KEFs = PX * V_coeff;  % naive case
 
 
 
-  %%  Dual Koopman case 
-% K_dual =K_res';
+  %%  Dual Koopman case (it seems we need use this ?)
+% K_dual =K';
 % [V_dual,Lam_dual] = eig(K_dual);
 % 
 % lam_dual = diag(Lam_dual);
