@@ -6,7 +6,7 @@
 
 %function [G,K_star,L,PX,PY,PSI_x,PSI_y,PSI_y2] = kernel_ResDMD(Xa,Ya,varargin)
 %function [G,K_star,L,PX,PY,PSI_x,PSI_y,PSI_y2,G1,A1,kernel_f,KEs,KMs,KEFs] = kernel_ResDMD(Xa,Ya,varargin)
-function [G,K,L,PX,PY,PSI_x,PSI_y,PSI_y2,G1,A1,kernel_f] = kernel_ResDMD(Xa,Ya,varargin)
+function [G,K,L,PX,PY,PSI_x,PSI_y,PSI_y2,G1,A1,UU, kernel_f] = kernel_ResDMD(Xa,Ya,varargin)
 % This code applies kernelized ResDMD.
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % INPUTS
@@ -99,8 +99,9 @@ UU = U*sqrt(diag(1./diag(D0)));
 % --> In kernel EDMD. Kernelized ResEDMD 
 % ---> basis function are kernel sections k_{x_i}, 
 %  evolution g_t+1 =K*g_t    (coefficients live in the dual space)
-%==============================================
-K = UU'*A1*UU; %dual 
+%==================================== =========
+K = UU'*A1*UU; %dual % KeDMD of KeDMD
+%K=K';
 
 % K_naive =UU'A1_naive*UU  % K_naive = K_satr'
 
