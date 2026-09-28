@@ -7,5 +7,5 @@
 
 
 ## Ensemble PREC data
-![description](top_9_dual_spatial_modes_r1.pdf)
+![description](top_9_dual_spatial_modes_r1.jpg)
 
